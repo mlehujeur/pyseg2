@@ -4,6 +4,9 @@ import numpy as np
 
 @dataclass
 class FileDescriptorSubBlock:
+    """
+    First part of the File Descriptor
+    """
     endian: str = "little"
     identification_bytes: bytes = b"\x55\x3a"
     revision_number: int = 1
@@ -97,6 +100,9 @@ class FileDescriptorSubBlock:
 @dataclass
 class TracePointerSubblock:
 
+    """
+    The table with the location of each trace in the file
+    """
     endian: str = "little"
     string_terminator: bytes = b"\x00"
     number_of_traces: int = 1  # N
@@ -117,7 +123,6 @@ class TracePointerSubblock:
 
     def load(self, fid):
         buff = fid.read(self.size_of_trace_pointer_subblock)
-        print(self.size_of_trace_pointer_subblock, len(buff), self.number_of_traces)
         self.unpack(buff)
 
     def unpack(self, buff: bytes):
@@ -127,6 +132,9 @@ class TracePointerSubblock:
 
 @dataclass
 class String:
+    """
+    Strings as stored in the Free Format Section of the File header and Trace headers
+    """
     offset: int = 0
     text: str = ""
     string_terminator: bytes = b"\x00"
@@ -137,7 +145,9 @@ class String:
 
 @dataclass
 class FreeFormatSection:
-
+    """
+    A group of strings that appear in the file header and in each trace header
+    """
     endian: str = "little"
     string_terminator: bytes = b"\x00"
     size_of_free_format_section: int = 0
@@ -175,7 +185,7 @@ class FreeFormatSection:
                 offset=offset,
                 text=text,
                 string_terminator=tailer)
-            print(string.text)
+            self.strings.append(string)
 
             if text.startswith('NOTE'):
                 break
@@ -184,6 +194,9 @@ class FreeFormatSection:
 
 @dataclass
 class TraceDescriptorBlock:
+    """
+    The trace header includes a fixed part and a Free format section
+    """
     endian: str = "little"
     string_terminator: bytes = b"\x00"
     identification_bytes: bytes = b"\x22\x44"
@@ -223,7 +236,10 @@ class TraceDescriptorBlock:
 
 
 @dataclass
-class DataBlock:
+class TraceDataBlock:
+    """
+    The data block
+    """
     data_format_code: bytes = b"\x04"
     number_of_samples_in_data_block: int = 0
     number_of_bytes: int = 0
@@ -259,36 +275,51 @@ class DataBlock:
         self.data = np.frombuffer(buff, dtype=self.dtype, count=self.number_of_samples_in_data_block)
 
 
+@dataclass
+class Seg2Trace:
+    trace_descriptor_block: TraceDescriptorBlock
+    trace_data_block: TraceDataBlock
+
+
+class Seg2File:
+    def __init__(self, filename: str):
+
+        self.file_descriptor_sub_block = FileDescriptorSubBlock()
+        self.trace_pointer_subblock = TracePointerSubblock()
+        self.free_format_section = FreeFormatSection()
+        self.seg2traces = []
+
+        with open(filename, 'rb') as fid:
+            self.file_descriptor_sub_block.load(fid)
+
+            self.trace_pointer_subblock.set(self.file_descriptor_sub_block)
+            self.trace_pointer_subblock.load(fid)
+
+            self.free_format_section.set(
+                self.file_descriptor_sub_block,
+                self.trace_pointer_subblock)
+            self.free_format_section.load(fid)
+
+            for n, trace_pointer in enumerate(self.trace_pointer_subblock.trace_pointers):
+                # make sure the cursor is positioned at the beginning of the trace
+                fid.seek(trace_pointer, 0)
+
+                trace_descriptor_block = TraceDescriptorBlock()
+                trace_data_block = TraceDataBlock()
+
+                trace_descriptor_block.set(self.trace_pointer_subblock)
+                trace_descriptor_block.load(fid)
+
+                trace_data_block.set(trace_descriptor_block)
+                trace_data_block.load(fid)
+
+                seg2trace = Seg2Trace(
+                    trace_descriptor_block,
+                    trace_data_block)
+                self.seg2traces.append(seg2trace)
+
+
 if __name__ == "__main__":
 
-    fdsb = FileDescriptorSubBlock()
-    tpsb = TracePointerSubblock()
-    ffs = FreeFormatSection()
+    seg2 = Seg2File('./toto.seg2')
 
-    with open('toto.seg2', 'rb') as fid:
-        fdsb.load(fid)
-        print(fdsb)
-
-        tpsb.set(fdsb)
-        tpsb.load(fid)
-        print(tpsb)
-
-        ffs.set(fdsb, tpsb)
-        ffs.load(fid)
-
-        for n, i in enumerate(tpsb.trace_pointers):
-            fid.seek(i, 0)
-            tdb = TraceDescriptorBlock()
-            db = DataBlock()
-
-            tdb.set(tpsb)
-            tdb.load(fid)
-            print(tdb)
-
-            db.set(tdb)
-            db.load(fid)
-
-            print(db)
-            import matplotlib.pyplot as plt
-            plt.plot(0.1 * db.data / np.std(db.data) + n)
-    plt.show()
