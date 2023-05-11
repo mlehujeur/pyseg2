@@ -1,10 +1,6 @@
 from typing import Union, Optional, List
 from dataclasses import dataclass
-
-import matplotlib.pyplot as plt
 import numpy as np
-
-# TODO : implement the pack method of each block for writing
 
 
 @dataclass
@@ -169,9 +165,6 @@ class FileDescriptorSubBlock:
         assert len(self.reserved) == 32 - 14
         buff[14:] = self.reserved
 
-        # print(self._buffin)
-        # print(bytes(buff))
-        # raise
         return bytes(buff)
 
 
@@ -478,9 +471,6 @@ class TraceDescriptorBlock:
     def nbytes(self):
         return 32 + self.free_format_section.nbytes()
 
-    # @property
-    # def size_of_descriptor_block(self):
-    #     return self.nbytes()
 
 @dataclass
 class TraceDataBlock:
@@ -546,6 +536,7 @@ class Seg2Trace:
     def nbytes(self):
         return self.trace_descriptor_block.nbytes() + \
             self.trace_data_block.nbytes()
+
 
 class Seg2File:
     def __init__(self, filename: str):
