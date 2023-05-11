@@ -173,51 +173,157 @@ class TracePointerSubblock:
     """
     The table with the location of each trace in the file
     """
-    endian: str = "little"
-    string_terminator: bytes = b"\x00"
-    number_of_traces: int = 1  # N
-    size_of_trace_pointer_subblock: int = 4   # M
+
+    parent: FileDescriptorSubBlock
     trace_pointers: np.ndarray = \
-        np.empty(size_of_trace_pointer_subblock, dtype=np.uint32)  # unsigned int instead of unsigned long??
+        np.empty([], dtype=np.uint32)  # unsigned int instead of unsigned long??
 
-    def set(self, file_descriptor_subblock: FileDescriptorSubBlock):
-        self.endian = file_descriptor_subblock.endian
-        self.number_of_traces = file_descriptor_subblock.number_of_traces
-        self.size_of_trace_pointer_subblock = file_descriptor_subblock.size_of_trace_pointer_subblock
-        self.string_terminator = file_descriptor_subblock.string_terminator
+    @property
+    def endian(self):
+        return self.parent.endian
 
-        assert 4 <= self.size_of_trace_pointer_subblock <= 65532
-        assert not self.size_of_trace_pointer_subblock % 4
-        assert 1 <= self.number_of_traces <= 16383
-        assert 1 <= self.number_of_traces <= self.size_of_trace_pointer_subblock // 4
+    @property
+    def string_terminator(self):
+        return self.parent.string_terminator
+
+    @property
+    def number_of_traces(self):
+        return self.parent.number_of_traces
+
+    # @property
+    # def size_of_trace_pointer_subblock(self):
+    #     return self.parent.size_of_trace_pointer_subblock
 
     def load(self, fid):
-        buff = fid.read(self.size_of_trace_pointer_subblock)
+        buff = fid.read(self.parent.size_of_trace_pointer_subblock)
         self.unpack(buff)
 
     def unpack(self, buff: bytes):
-        self.trace_pointers = np.frombuffer(buff, dtype="uint32", count=self.number_of_traces)
+        self.trace_pointers = np.frombuffer(buff, dtype="uint32", count=self.parent.number_of_traces)
         assert len(self.trace_pointers) == self.number_of_traces, (len(self.trace_pointers))
 
     def nbytes(self):
-        return self.size_of_trace_pointer_subblock
+        return self.number_of_traces * 4
 
     def pack(self) -> bytes:
-        assert 4 <= self.size_of_trace_pointer_subblock <= 65532
-        assert not self.size_of_trace_pointer_subblock % 4
-        assert 1 <= self.number_of_traces <= 16383
-        assert 1 <= self.number_of_traces <= self.size_of_trace_pointer_subblock // 4
+        nbytes = self.nbytes()
+        endian = self.endian
+        number_of_traces = self.number_of_traces
 
-        assert len(self.trace_pointers) == self.number_of_traces, (len(self.trace_pointers))
+        dtype = {"little": "<u4", "big": ">u4"}[endian]
+
+        assert 4 <= nbytes <= 65532
+        assert not nbytes % 4
+        assert 1 <= self.number_of_traces <= 16383
+        assert 1 <= self.number_of_traces <= nbytes // 4
+
+        assert len(self.trace_pointers) == number_of_traces, (len(self.trace_pointers))
         assert self.trace_pointers.dtype == np.dtype("uint32"), self.trace_pointers.dtype
 
-        buff = bytearray(b"\x00" * self.size_of_trace_pointer_subblock)
-        dtype = {"little": "<u4", "big": ">u4"}[self.endian]
+        buff = bytearray(b"\x00" * nbytes)
 
-        buff[:self.number_of_traces*4] = \
+        buff[:number_of_traces * 4] = \
             self.trace_pointers.astype(dtype).tobytes()
 
         return bytes(buff)
+
+    @property
+    def size_of_free_format_section(self):
+        ans = self.trace_pointers[0]  # begining of data section (right after this block)
+        # subtract the numb of bytes in all blocks before this one
+        ans -= self.nbytes()
+        ans -= self.parent.nbytes()
+        return ans
+
+
+@dataclass
+class TraceDescriptorSubBlock:
+    """
+    The trace header includes a fixed part and a Free format section
+    """
+    parent: FileDescriptorSubBlock
+    identification_bytes: bytes = b"\x22\x44"
+    size_of_descriptor_block: int = 0
+    size_of_data_block: int = 0
+    number_of_samples_in_data_block: int = 0
+    data_format_code: bytes = b"\x00"
+    reserved: bytes = b"\x00"
+
+    @property
+    def endian(self):
+        return self.parent.endian
+
+    @property
+    def string_terminator(self):
+        return self.parent.string_terminator
+
+    def load(self, fid):
+        buff = fid.read(32)
+        assert len(buff) == 32
+
+        self.trace_descriptor_block_id = buff[0:2]
+        if self.endian == "little":
+            assert self.trace_descriptor_block_id == b"\x22\x44", \
+                self.trace_descriptor_block_id
+        else:
+            assert self.trace_descriptor_block_id == b"\x44\x22", \
+                self.trace_descriptor_block_id
+
+        self.size_of_descriptor_block = \
+            int.from_bytes(buff[2:4], byteorder=self.endian, signed=False)
+
+        assert self.size_of_descriptor_block % 4 == 0
+        assert 32 <= self.size_of_descriptor_block <= 65532, self.size_of_descriptor_block
+
+        self.size_of_data_block = \
+            int.from_bytes(buff[4:8], byteorder=self.endian, signed=False)
+        self.number_of_samples_in_data_block = \
+            int.from_bytes(buff[8:12], byteorder=self.endian, signed=False)
+        self.data_format_code = buff[12:13]
+        self.reserved = buff[13:]
+
+    def pack(self) -> bytes:
+        buff = bytearray(b"\x00" * 32)
+        endian = self.endian
+        if endian == "little":
+            buff[0:2] = b"\x22\x44"
+        elif endian == "big":
+            buff[2:4] = b"\x44\x22"
+        else:
+            raise ValueError(endian)
+
+        assert self.size_of_descriptor_block % 4 == 0
+        assert 32 <= self.size_of_descriptor_block <= 65532
+        buff[2:4] = \
+            int.to_bytes(
+                self.size_of_descriptor_block,
+                length=2,
+                byteorder=endian, signed=False)
+
+        buff[4:8] = \
+            int.to_bytes(self.size_of_data_block,
+                         length=4, byteorder=endian,
+                         signed=False)
+
+        buff[8:12] = \
+            int.to_bytes(self.number_of_samples_in_data_block,
+                         length=4, byteorder=endian,
+                         signed=False)
+        buff[12:13] = self.data_format_code
+        assert len(self.reserved) == 32 - 13
+        buff[13:] = self.reserved
+
+        return buff
+
+    def nbytes(self):
+        return 32
+
+    @property
+    def size_of_free_format_section(self):
+        ans = self.size_of_descriptor_block
+        ans -= self.nbytes()  # subtract the bytes in this pre-block
+        return ans
+
 
 
 @dataclass
@@ -225,7 +331,6 @@ class String:
     """
     Strings as stored in the Free Format Section of the File header and Trace headers
     """
-    endian: str = "little"
     offset: int = 0   # replace by a property?
     text: str = ""
     string_terminator: bytes = b"\x00"
@@ -241,13 +346,13 @@ class String:
         string_terminator = buff[-len(self.string_terminator):]
         assert string_terminator == self.string_terminator, (string_terminator, self.string_terminator)
 
-    def pack(self) -> bytes:
+    def pack(self, endian:str) -> bytes:
         assert self.offset == len(self.text) + 2 + len(self.string_terminator)
         buff = bytearray(b'\x00' * self.offset)
 
         buff[:2] = int.to_bytes(
             self.offset, length=2,
-            byteorder=self.endian, signed=False)
+            byteorder=endian, signed=False)
 
         buff[2:-len(self.string_terminator)] = self.text.encode('ascii')
         buff[-len(self.string_terminator):] = self.string_terminator
@@ -286,34 +391,53 @@ class String:
     def __str__(self):
         return f"STRING {self.key}: {self.value}"
 
+
 @dataclass
 class FreeFormatSection:
     """
     A group of strings that appear in the file header and in each trace header
     """
-    endian: str = "little"
-    string_terminator: bytes = b"\x00"
-    size_of_free_format_section: int = 0
-    strings: Optional[List[str]] = None
+    parent: Union[TracePointerSubblock, TraceDescriptorSubBlock]
+    # size_of_free_format_section: int = 0
+    strings: Optional[List[String]] = None
 
-    def set(self,
-            file_descriptor_subblock: FileDescriptorSubBlock,
-            trace_pointer_subblock: TracePointerSubblock):
+    # def set(self,
+    #         file_descriptor_subblock: FileDescriptorSubBlock,
+    #         trace_pointer_subblock: TracePointerSubblock):
+    #
+    #     self.endian = file_descriptor_subblock.endian
+    #     self.string_terminator = file_descriptor_subblock.string_terminator
+    #     self.size_of_free_format_section = \
+    #         trace_pointer_subblock.trace_pointers[0] \
+    #         - 32 \
+    #         - trace_pointer_subblock.size_of_trace_pointer_subblock
 
-        self.endian = file_descriptor_subblock.endian
-        self.string_terminator = file_descriptor_subblock.string_terminator
-        self.size_of_free_format_section = \
-            trace_pointer_subblock.trace_pointers[0] \
-            - 32 \
-            - trace_pointer_subblock.size_of_trace_pointer_subblock
+    # def set_endian(self, endian: str):
+    #     self.endian = endian
+    #     for string in self.strings:
+    #         string.endian = endian
 
-    def set_endian(self, endian: str):
-        self.endian = endian
-        for string in self.strings:
-            string.endian = endian
+    @property
+    def endian(self):
+        return self.parent.endian
+
+    @property
+    def string_terminator(self):
+        return self.parent.string_terminator
+
+    def nbytes(self):
+        # each parent type has its own implementation of this property
+        # return self.parent.size_of_free_format_section
+        # # <= implies recursive error
+        assert self.strings is not None
+
+        ans = np.sum([string.nbytes() for string in self.strings])
+        ans = int(np.ceil(ans / 4.) * 4.)
+        return ans
 
     def load(self, fid):
-        buff = fid.read(self.size_of_free_format_section)
+        # do not use self.nbytes here
+        buff = fid.read(self.parent.size_of_free_format_section)
         self.unpack(buff=buff)
 
     def unpack(self, buff: bytes):
@@ -364,112 +488,109 @@ class FreeFormatSection:
         if note is not None:
             self.strings.append(note)
 
-    def nbytes(self):
-        #return sum([string.nbytes() for string in self.strings])  # might be shorter than actual length
-        return self.size_of_free_format_section
 
     def pack(self) -> bytes:
         self.sort()
         buff = b""
         for n, string in enumerate(self.strings):
             string: String
-            buff += string.pack()
+            buff += string.pack(endian=self.endian)
 
         # padd with zeros to get the right length
-        if len(buff) < self.size_of_free_format_section:
-            buff += b"\x00" * (self.size_of_free_format_section - len(buff))
+        if len(buff) < self.nbytes():
+            buff += b"\x00" * (self.nbytes() - len(buff))
 
         return buff
 
 
-@dataclass
-class TraceDescriptorBlock:
-    """
-    The trace header includes a fixed part and a Free format section
-    """
-    endian: str = "little"
-    string_terminator: bytes = b"\x00"
-    identification_bytes: bytes = b"\x22\x44"
-    size_of_data_block: int = 0
-    number_of_samples_in_data_block: int = 0
-    data_format_code: bytes = b"\x00"
-    reserved: bytes = b"\x00"
-    free_format_section: FreeFormatSection = None
-
-    def set(self, trace_pointer_subblock: TracePointerSubblock):
-        self.endian = trace_pointer_subblock.endian
-        self.string_terminator = \
-            trace_pointer_subblock.string_terminator
-
-    def load(self, fid):
-        buff = fid.read(32)
-        assert len(buff) == 32
-
-        self.trace_descriptor_block_id = buff[0:2]
-        if self.endian == "little":
-            assert self.trace_descriptor_block_id == b"\x22\x44", \
-                self.trace_descriptor_block_id
-        else:
-            assert self.trace_descriptor_block_id == b"\x44\x22", \
-                self.trace_descriptor_block_id
-
-        size_of_descriptor_block = \
-            int.from_bytes(buff[2:4], byteorder=self.endian, signed=False)
-
-        assert size_of_descriptor_block % 4 == 0
-        assert 32 <= size_of_descriptor_block <= 65532, size_of_descriptor_block
-
-        self.size_of_data_block = \
-            int.from_bytes(buff[4:8], byteorder=self.endian, signed=False)
-        self.number_of_samples_in_data_block = \
-            int.from_bytes(buff[8:12], byteorder=self.endian, signed=False)
-        self.data_format_code = buff[12:13]
-        self.reserved = buff[13:]
-
-        self.free_format_section = FreeFormatSection(
-            endian=self.endian,
-            string_terminator=self.string_terminator,
-            size_of_free_format_section=size_of_descriptor_block - 32,
-            )
-        self.free_format_section.load(fid)
-
-    def pack(self) -> bytes:
-        buff = bytearray(b"\x00" * 32)
-
-        if self.endian == "little":
-            buff[0:2] = b"\x22\x44"
-        elif self.endian == "big":
-            buff[2:4] = b"\x44\x22"
-        else:
-            raise ValueError(self.endian)
-
-        size_of_descriptor_block = self.nbytes()
-        assert size_of_descriptor_block % 4 == 0
-        assert 32 <= size_of_descriptor_block <= 65532
-        buff[2:4] = \
-            int.to_bytes(
-                size_of_descriptor_block,
-                length=2,
-                byteorder=self.endian, signed=False)
-
-        buff[4:8] = \
-            int.to_bytes(self.size_of_data_block,
-                         length=4, byteorder=self.endian,
-                         signed=False)
-
-        buff[8:12] = \
-            int.to_bytes(self.number_of_samples_in_data_block,
-                         length=4, byteorder=self.endian,
-                         signed=False)
-        buff[12:13] = self.data_format_code
-        assert len(self.reserved) == 32 - 13
-        buff[13:] = self.reserved
-
-        buff += self.free_format_section.pack()
-        return buff
-
-    def nbytes(self):
-        return 32 + self.free_format_section.nbytes()
+# @dataclass
+# class TraceDescriptorBlock:
+#     """
+#     The trace header includes a fixed part and a Free format section
+#     """
+#     endian: str = "little"
+#     string_terminator: bytes = b"\x00"
+#     identification_bytes: bytes = b"\x22\x44"
+#     size_of_data_block: int = 0
+#     number_of_samples_in_data_block: int = 0
+#     data_format_code: bytes = b"\x00"
+#     reserved: bytes = b"\x00"
+#     free_format_section: FreeFormatSection = None
+#
+#     def set(self, trace_pointer_subblock: TracePointerSubblock):
+#         self.endian = trace_pointer_subblock.endian
+#         self.string_terminator = \
+#             trace_pointer_subblock.string_terminator
+#
+#     def load(self, fid):
+#         buff = fid.read(32)
+#         assert len(buff) == 32
+#
+#         self.trace_descriptor_block_id = buff[0:2]
+#         if self.endian == "little":
+#             assert self.trace_descriptor_block_id == b"\x22\x44", \
+#                 self.trace_descriptor_block_id
+#         else:
+#             assert self.trace_descriptor_block_id == b"\x44\x22", \
+#                 self.trace_descriptor_block_id
+#
+#         size_of_descriptor_block = \
+#             int.from_bytes(buff[2:4], byteorder=self.endian, signed=False)
+#
+#         assert size_of_descriptor_block % 4 == 0
+#         assert 32 <= size_of_descriptor_block <= 65532, size_of_descriptor_block
+#
+#         self.size_of_data_block = \
+#             int.from_bytes(buff[4:8], byteorder=self.endian, signed=False)
+#         self.number_of_samples_in_data_block = \
+#             int.from_bytes(buff[8:12], byteorder=self.endian, signed=False)
+#         self.data_format_code = buff[12:13]
+#         self.reserved = buff[13:]
+#
+#         self.free_format_section = FreeFormatSection(
+#             endian=self.endian,
+#             string_terminator=self.string_terminator,
+#             size_of_free_format_section=size_of_descriptor_block - 32,
+#             )
+#         self.free_format_section.load(fid)
+#
+#     def pack(self) -> bytes:
+#         buff = bytearray(b"\x00" * 32)
+#
+#         if self.endian == "little":
+#             buff[0:2] = b"\x22\x44"
+#         elif self.endian == "big":
+#             buff[2:4] = b"\x44\x22"
+#         else:
+#             raise ValueError(self.endian)
+#
+#         size_of_descriptor_block = self.nbytes()
+#         assert size_of_descriptor_block % 4 == 0
+#         assert 32 <= size_of_descriptor_block <= 65532
+#         buff[2:4] = \
+#             int.to_bytes(
+#                 size_of_descriptor_block,
+#                 length=2,
+#                 byteorder=self.endian, signed=False)
+#
+#         buff[4:8] = \
+#             int.to_bytes(self.size_of_data_block,
+#                          length=4, byteorder=self.endian,
+#                          signed=False)
+#
+#         buff[8:12] = \
+#             int.to_bytes(self.number_of_samples_in_data_block,
+#                          length=4, byteorder=self.endian,
+#                          signed=False)
+#         buff[12:13] = self.data_format_code
+#         assert len(self.reserved) == 32 - 13
+#         buff[13:] = self.reserved
+#
+#         buff += self.free_format_section.pack()
+#         return buff
+#
+#     def nbytes(self):
+#         return 32 + self.free_format_section.nbytes()
 
 
 @dataclass
@@ -477,10 +598,20 @@ class TraceDataBlock:
     """
     The data block
     """
-    endian: str = "little"
-    data_format_code: bytes = b"\x04"
-    number_of_samples_in_data_block: int = 0
+    parent: TraceDescriptorSubBlock
     data: np.ndarray = np.array([], np.dtype('float32'))
+
+    @property
+    def endian(self):
+        return self.parent.endian
+
+    @property
+    def number_of_samples_in_data_block(self):
+        return self.parent.number_of_samples_in_data_block
+
+    @property
+    def data_format_code(self):
+        return self.parent.data_format_code
 
     @property
     def dtype(self):
@@ -493,14 +624,14 @@ class TraceDataBlock:
 
     def nbytes(self):
         return self.dtype.itemsize * self.number_of_samples_in_data_block
-
-    def set(self, trace_descriptor_block: TraceDescriptorBlock):
-        self.endian = trace_descriptor_block.endian
-        self.data_format_code = trace_descriptor_block.data_format_code
-        self.number_of_samples_in_data_block = trace_descriptor_block.number_of_samples_in_data_block
-
-        if self.data_format_code == b"\x03":
-            raise NotImplementedError
+    #
+    # def set(self, trace_descriptor_block: TraceDescriptorBlock):
+    #     self.endian = trace_descriptor_block.endian
+    #     self.data_format_code = trace_descriptor_block.data_format_code
+    #     self.number_of_samples_in_data_block = trace_descriptor_block.number_of_samples_in_data_block
+    #
+    #     if self.data_format_code == b"\x03":
+    #         raise NotImplementedError
 
     def load(self, fid):
         buff = fid.read(self.nbytes())
@@ -508,7 +639,7 @@ class TraceDataBlock:
 
     def unpack(self, buff: bytes):
         # print(len(buff), self.number_of_samples_in_data_block, self.dtype, "!ù!ù")
-
+        print('****', len(buff), self.nbytes(), self.dtype)
         self.data = np.frombuffer(
             buff, dtype=self.dtype,
             count=self.number_of_samples_in_data_block)
@@ -516,25 +647,29 @@ class TraceDataBlock:
     def pack(self) -> bytes:
         assert len(self.data) == self.number_of_samples_in_data_block
 
+        print('?????', self.nbytes(), self.dtype)
         buff = self.data.astype(self.dtype).tobytes()
         return buff
 
 
 @dataclass
 class Seg2Trace:
-    trace_descriptor_block: TraceDescriptorBlock
+    trace_descriptor_subblock: TraceDescriptorSubBlock
+    trace_free_format_section: FreeFormatSection
     trace_data_block: TraceDataBlock
 
-    def set_endian(self, endian: str):
-        self.trace_descriptor_block.endian = endian
-        self.trace_data_block.endian = endian
-
     def pack(self):
-        return self.trace_descriptor_block.pack() + \
-            self.trace_data_block.pack()
+        # TODO Clean up that mess
+        y = self.trace_free_format_section.pack()
+        self.trace_descriptor_subblock.size_of_descriptor_block = len(y) + 32
+        x = self.trace_descriptor_subblock.pack()
+        assert self.trace_descriptor_subblock.size_of_descriptor_block == len(x) + len(y), (self.trace_descriptor_subblock.size_of_descriptor_block, len(x), len(y))
+        z = self.trace_data_block.pack()
+        return x + y + z
 
     def nbytes(self):
-        return self.trace_descriptor_block.nbytes() + \
+        return self.trace_descriptor_subblock.nbytes() + \
+            self.trace_free_format_section.nbytes() + \
             self.trace_data_block.nbytes()
 
 
@@ -542,38 +677,39 @@ class Seg2File:
     def __init__(self, filename: str):
 
         self.file_descriptor_subblock = FileDescriptorSubBlock()
-        self.trace_pointer_subblock = TracePointerSubblock()
-        self.free_format_section = FreeFormatSection()
-        self.seg2traces: List[Seg2Trace] = []
 
         with open(filename, 'rb') as fid:
             self.file_descriptor_subblock.load(fid)
 
-            self.trace_pointer_subblock.set(self.file_descriptor_subblock)
+            # self.trace_pointer_subblock.set(self.file_descriptor_subblock)
+            self.trace_pointer_subblock = TracePointerSubblock(parent=self.file_descriptor_subblock)
             self.trace_pointer_subblock.load(fid)
 
-            self.free_format_section.set(
-                self.file_descriptor_subblock,
-                self.trace_pointer_subblock)
+            # self.free_format_section.set(
+            #     self.file_descriptor_subblock,
+            #     self.trace_pointer_subblock)
+            self.free_format_section = FreeFormatSection(parent=self.trace_pointer_subblock)
             self.free_format_section.load(fid)
 
+            self.seg2traces: List[Seg2Trace] = []
             for n, trace_pointer in enumerate(self.trace_pointer_subblock.trace_pointers):
                 # make sure the cursor is positioned at the beginning
                 # of the trace
                 fid.seek(trace_pointer, 0)
 
-                trace_descriptor_block = TraceDescriptorBlock()
-                trace_data_block = TraceDataBlock()
+                trace_descriptor_subblock = TraceDescriptorSubBlock(parent=self.file_descriptor_subblock)
+                trace_descriptor_subblock.load(fid)
 
-                trace_descriptor_block.set(self.trace_pointer_subblock)
-                trace_descriptor_block.load(fid)
+                trace_free_format_section = FreeFormatSection(parent=trace_descriptor_subblock)
+                trace_free_format_section.load(fid)
 
-                trace_data_block.set(trace_descriptor_block)
+                trace_data_block = TraceDataBlock(parent=trace_descriptor_subblock)
                 trace_data_block.load(fid)
 
                 seg2trace = Seg2Trace(
-                    trace_descriptor_block,
-                    trace_data_block)
+                    trace_descriptor_subblock=trace_descriptor_subblock,
+                    trace_free_format_section=trace_free_format_section,
+                    trace_data_block=trace_data_block)
 
                 self.seg2traces.append(seg2trace)
 
@@ -590,38 +726,42 @@ class Seg2File:
              s += str(trace) + "\n"
         return s
 
-    def set_endian(self, endian: str):
-        assert endian in ["little", "big"]
-        self.file_descriptor_subblock.endian = endian
-        self.trace_pointer_subblock.endian = endian
-        self.free_format_section.set_endian(endian)
-        for trace in self.seg2traces:
-            trace.set_endian(endian)
+    # def set_endian(self, endian: str):
+    #     assert endian in ["little", "big"]
+    #     self.file_descriptor_subblock.endian = endian
+    #     self.trace_pointer_subblock.endian = endian
+    #     self.free_format_section.set_endian(endian)
+    #     for trace in self.seg2traces:
+    #         trace.set_endian(endian)
 
     def pack(self) -> bytes:
 
+
         # homogenise the endianess
-        self.set_endian(self.file_descriptor_subblock.endian)
+        # self.set_endian(self.file_descriptor_subblock.endian)
 
         # ==== recompute the trace pointer table
         number_of_traces = len(self.seg2traces)
         self.file_descriptor_subblock.number_of_traces = number_of_traces
 
         # reset the trace pointer table
-        self.trace_pointer_subblock.number_of_traces = number_of_traces
-        self.trace_pointer_subblock.size_of_trace_pointer_subblock = \
+        self.file_descriptor_subblock.size_of_trace_pointer_subblock = \
             4 * number_of_traces
         self.trace_pointer_subblock.trace_pointers = \
-            np.empty(self.trace_pointer_subblock.number_of_traces,
-                     dtype=np.uint32)
+            np.empty(number_of_traces, dtype=np.uint32)
 
         # length of the file descriptor block
-        nbytes = \
+        # raise ValueError(
+        #     self.file_descriptor_subblock.nbytes(),
+        #     self.trace_pointer_subblock.nbytes(),
+        #     self.free_format_section.nbytes())
+
+        size_of_file_descriptor_block = \
             self.file_descriptor_subblock.nbytes() + \
             self.trace_pointer_subblock.nbytes() + \
             self.free_format_section.nbytes()
 
-        self.trace_pointer_subblock.trace_pointers[0] = nbytes  # number of bytes in the header
+        self.trace_pointer_subblock.trace_pointers[0] = size_of_file_descriptor_block  # number of bytes in the header
         for n, trace in enumerate(self.seg2traces[:-1]):
             # put the number of bytes of the trace for now
             # x = self.trace_pointer_subblock.trace_pointers.dtype.type(trace.nbytes())
@@ -636,27 +776,23 @@ class Seg2File:
         # self.trace_pointer_subblock.unpack(self.trace_pointer_subblock.pack())
         # print(self.trace_pointer_subblock.trace_pointers)
 
-        buff = \
-            self.file_descriptor_subblock.pack() + \
-            self.trace_pointer_subblock.pack() + \
-            self.free_format_section.pack()
-        assert len(buff) == nbytes
+        buff = self.file_descriptor_subblock.pack()
+        buff += self.trace_pointer_subblock.pack()
+        buff += self.free_format_section.pack()
+        assert len(buff) == size_of_file_descriptor_block
 
         for n, trace in enumerate(self.seg2traces):
             # the current position must agree with the trace_pointer_table
             assert len(buff) == self.trace_pointer_subblock.trace_pointers[n]
 
             buff += trace.pack()
-            # print("packing", n,
-            #       trace.trace_descriptor_block.nbytes(),
-            #       len(trace.trace_descriptor_block.pack()),
-            #       len(trace.trace_data_block.pack()))
+            print("packing", n, len(buff))
 
         return buff
 
 
 if __name__ == "__main__":
-
+    import matplotlib.pyplot as plt
     print('load toto')
     seg2 = Seg2File('./toto.seg2')
 
@@ -666,34 +802,35 @@ if __name__ == "__main__":
 
     print('load tata')
     seg2re = Seg2File('./tata.seg2')
-    print(seg2re.seg2traces[0].trace_descriptor_block.free_format_section)
+    print(seg2re.seg2traces[0].trace_free_format_section)
 
-    exit()
+    # exit()
 
     print('load tata')
     with open('tata.seg2', 'rb') as fid:
         file_descriptor_subblock = FileDescriptorSubBlock()
         file_descriptor_subblock.load(fid)
 
-        trace_pointer_subblock = TracePointerSubblock()
-        trace_pointer_subblock.set(file_descriptor_subblock)
+        trace_pointer_subblock = TracePointerSubblock(parent=file_descriptor_subblock)
         trace_pointer_subblock.load(fid)
 
-        free_format_section = FreeFormatSection()
-        free_format_section.set(file_descriptor_subblock, trace_pointer_subblock)
+        free_format_section = FreeFormatSection(parent=trace_pointer_subblock)
         free_format_section.load(fid)
 
-        # fid.seek(trace_pointer_subblock.trace_pointers[0], 0)
-        trace_descriptor_block = TraceDescriptorBlock()
-        trace_descriptor_block.set(trace_pointer_subblock)
-        trace_descriptor_block.load(fid)
+        fid.seek(trace_pointer_subblock.trace_pointers[0], 0)
+        trace_descriptor_subblock = TraceDescriptorSubBlock(parent=file_descriptor_subblock)
+        trace_descriptor_subblock.load(fid)
 
+        trace_free_format_section = FreeFormatSection(parent=trace_descriptor_subblock)
+        trace_free_format_section.load(fid)
 
-        trace_data_block = TraceDataBlock()
-        trace_data_block.set(trace_descriptor_block)
-        print(fid.tell())
+        trace_data_block = TraceDataBlock(parent=trace_descriptor_subblock)
+        print("gggggggggg", fid.tell(), trace_pointer_subblock.trace_pointers[0])
         trace_data_block.load(fid)
-        print(fid.tell())
+
+        # print(fid.tell())
+        # trace_data_block.load(fid)
+        # print(fid.tell())
 
 
 
@@ -704,17 +841,25 @@ if __name__ == "__main__":
     # print(trace_pointer_subblock)
     # print(np.abs(seg2.trace_pointer_subblock.trace_pointers - trace_pointer_subblock.trace_pointers).sum())
 
+    print(seg2.free_format_section.nbytes())
+    print(free_format_section.nbytes())
     # for string in seg2.free_format_section.strings:
     #     print(string)
     # print()
     # for string in free_format_section.strings:
     #     print(string)
 
-    # print(str(seg2.seg2traces[0].trace_descriptor_block).replace(',', ',\n\t'))
-    # print(str(trace_descriptor_block).replace(',', ',\n\t'))
+    # print(str(seg2.seg2traces[0].trace_descriptor_subblock).replace(',', ',\n\t'))
+    # print(str(trace_descriptor_subblock).replace(',', ',\n\t'))
     #
-    # print(seg2.seg2traces[0].trace_data_block.data.shape)
-    # print(trace_data_block.data.shape)
+    # for string in seg2.seg2traces[0].trace_free_format_section.strings:
+    #     print(string)
+    # print()
+    # for string in trace_free_format_section.strings:
+    #     print(string)
+
+    print(seg2.seg2traces[0].trace_data_block.data.shape)
+    print(trace_data_block.data.shape)
     plt.figure()
     plt.plot(seg2.seg2traces[0].trace_data_block.data)
     plt.plot(trace_data_block.data)
