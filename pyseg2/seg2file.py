@@ -1,5 +1,8 @@
+from typing import Union, Optional, List
 from dataclasses import dataclass
 import numpy as np
+
+# TODO : implement the pack method of each block for writing
 
 
 @dataclass
@@ -138,10 +141,35 @@ class String:
     offset: int = 0
     text: str = ""
     string_terminator: bytes = b"\x00"
+    _key: str = ""
+    _value: Optional[object] = None
+
+    def extract(self):
+        text = self.text.strip()
+        key = text.split()[0].split('\t')[0]
+        value = text.split(key)[-1].strip()
+        if "\n" in value:
+            value = value.split('\n')
+            value = [_.strip() for _ in value]
+            while "" in value:
+                value.remove("")
+            value = ";".join(value)
+        return key, value
+
+    @property
+    def key(self):
+        if self._key == "":
+            self._key, self._value = self.extract()
+        return self._key
+
+    @property
+    def value(self):
+        if self._value is None:
+            self._key, self._value = self.extract()
+        return self._value
 
     def __str__(self):
-        return f"{self.offset=} {self.text=} {self.string_terminator=}"
-
+        return f"STRING {self.key}: {self.value}"
 
 @dataclass
 class FreeFormatSection:
@@ -151,7 +179,7 @@ class FreeFormatSection:
     endian: str = "little"
     string_terminator: bytes = b"\x00"
     size_of_free_format_section: int = 0
-    strings: np.ndarray = np.empty([], object)
+    strings: Optional[List[str]] = None
 
     def set(self,
             file_descriptor_subblock: FileDescriptorSubBlock,
@@ -185,7 +213,11 @@ class FreeFormatSection:
                 offset=offset,
                 text=text,
                 string_terminator=tailer)
-            self.strings.append(string)
+            print(string)
+            if self.strings is None:
+                self.strings = [string]
+            else:
+                self.strings.append(string)
 
             if text.startswith('NOTE'):
                 break
