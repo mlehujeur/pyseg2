@@ -13,10 +13,8 @@ class FileDescriptorSubBlock:
     revision_number: int = 1
     size_of_trace_pointer_subblock: int = 4   # M
     number_of_traces: int = 1  # N
-    string_terminator_length: int = 1
     string_terminator: bytes = b"\x00"
-    line_terminator_length: int = 1
-    line_terminator: str = "\n"
+    line_terminator: bytes = b"\n"
     reserved: bytes = b"\x00" * (32 - 14 + 1)
 
     def load(self, fid) -> None:
@@ -60,34 +58,20 @@ class FileDescriptorSubBlock:
         assert 1 <= self.number_of_traces <= self.size_of_trace_pointer_subblock // 4
 
         # ==================================
-        self.string_terminator_length = int.from_bytes(
+        string_terminator_length = int.from_bytes(
             buff[8:9],
             byteorder=self.endian,
             signed=False)
-        assert self.string_terminator_length in [1, 2], ValueError(self.string_terminator_length)
-
-        # =================
-        self.string_terminator = buff[9:9 + self.string_terminator_length]
+        assert string_terminator_length in [1, 2], ValueError(string_terminator_length)
+        self.string_terminator = buff[9:9 + string_terminator_length]
 
         # ==================================
-        self.line_terminator_length = int.from_bytes(
+        line_terminator_length = int.from_bytes(
             buff[11:12],
             byteorder=self.endian,
             signed=False)
-        assert self.line_terminator_length in [0, 1, 2],  self.line_terminator_length
-
-        # =================
-        if self.line_terminator_length == 0:
-            self.line_terminator = ""
-
-        elif self.line_terminator_length == 1:
-            self.line_terminator = buff[12:13]
-
-        elif self.line_terminator_length == 2:
-            self.line_terminator = buff[12:14]
-        
-        else:
-            raise ValueError(self.line_terminator_length)
+        assert line_terminator_length in [1, 2],  line_terminator_length
+        self.line_terminator = buff[12:12+line_terminator_length]
 
         # =================
         self.reserved = buff[14:33]
@@ -138,28 +122,27 @@ class FileDescriptorSubBlock:
             signed=False)
 
         # ==================================
-        assert self.string_terminator_length in [1, 2], ValueError(self.string_terminator_length)
-        assert len(self.string_terminator) == self.string_terminator_length
+        assert len(self.string_terminator) in [1, 2], ValueError(len(self.string_terminator))
         buff[8:9] = int.to_bytes(
-            self.string_terminator_length,
+            len(self.string_terminator),
             length=1,
             byteorder=self.endian,
             signed=False)
 
         # ==================================
-        buff[9:9 + self.string_terminator_length] = self.string_terminator
+        buff[9:9 + len(self.string_terminator)] = self.string_terminator
 
         # ==================================
-        assert len(self.line_terminator) == self.line_terminator_length
-        assert self.line_terminator_length in [0, 1, 2], self.line_terminator_length
+        assert len(self.line_terminator) == len(self.line_terminator)
+        assert len(self.line_terminator) in [0, 1, 2], len(self.line_terminator)
         buff[11:12] = int.to_bytes(
-            self.line_terminator_length,
+            len(self.line_terminator),
             length=1,
             byteorder=self.endian,
             signed=False)
 
         # =================
-        buff[12:12 + self.line_terminator_length] = self.line_terminator
+        buff[12:12 + len(self.line_terminator)] = self.line_terminator
 
         # =================
         assert len(self.reserved) == 32 - 14
