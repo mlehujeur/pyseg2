@@ -18,8 +18,11 @@ The hierarchy of the classes is as follow
 Warning:
     loading data: the controlling parameters (e.g. num of traces)
                   are read in the parent binary blocks and used by childrens to load data
+                  => size methods is supposed to give the expected size of the object in bytes
+                     according to headers
     packing data: the controlling parameters are inferred from the current state of the variables
                   and must be updated in the parent classes
+                  => number_of_bytes methods should provide the actual number of bytes of an object 
     
 """
 
@@ -98,10 +101,12 @@ class FileDescriptorSubBlock:
         self.reserved = buff[14:33]
         assert len(self.reserved) == 32 - 14, (len(self.reserved))
 
-    def nbytes(self):
-        """
-        number of bytes in this block
-        """
+    def size(self) -> int:
+        """number of bytes according to headers (loading)"""
+        return 32
+
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
         return 32
 
     def pack(self) -> bytes:
@@ -203,15 +208,19 @@ class TracePointerSubblock:
         self.trace_pointers = np.frombuffer(buff, dtype="uint32", count=self.parent.number_of_traces)
         assert len(self.trace_pointers) == self.number_of_traces, (len(self.trace_pointers))
 
-    def nbytes(self):
-        # I assume that the parent object is up-to-date !!!
+    def size(self) -> int:
+        """number of bytes according to headers (loading)"""
         return self.parent.size_of_trace_pointer_subblock
+
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
+        return self.trace_pointers.size * self.trace_pointers.dtype.itemsize
 
     def pack(self) -> bytes:
         # WARNING:
         # packing data must be adjusted to the current state of the parameters
         # Here, I assume that the fields of the parent object are already up-to-date
-        nbytes = self.parent.size_of_trace_pointer_subblock
+        nbytes = self.size()
         endian = self.endian
         number_of_traces = self.number_of_traces
 
@@ -237,8 +246,8 @@ class TracePointerSubblock:
         ans = self.trace_pointers[0]  # begining of data section (right after this block)
         # subtract the number of bytes in all blocks before this one
         # WARNING : I trust the current state of the FileDescriptorSubBlock
-        ans -= self.nbytes()  # size of this block according to parent
-        ans -= self.parent.nbytes()  # size of parent
+        ans -= self.size()  # size of this block according to parent
+        ans -= self.parent.size()  # size of parent
         return ans
 
 
@@ -321,13 +330,18 @@ class TraceDescriptorSubBlock:
 
         return buff
 
-    def nbytes(self):
+    def size(self) -> int:
+        """number of bytes according to headers (loading)"""
+        return 32
+
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
         return 32
 
     @property
     def size_of_free_format_section(self):
         ans = self.size_of_descriptor_block
-        ans -= self.nbytes()  # subtract the bytes in this pre-block
+        ans -= self.size()  # subtract the bytes in this pre-block
         return ans
 
 
@@ -360,24 +374,32 @@ class TraceDataBlock:
                b"\x05": "f8"}[self.data_format_code]
         return np.dtype(f'{bl}{fmt}')
 
-    def nbytes(self):
+    def size(self) -> int:
+        """number of bytes according to headers (loading)"""
         return self.dtype.itemsize * self.number_of_samples_in_data_block
 
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
+        return self.data.dtype.itemsize * self.data.size
+
     def load(self, fid):
-        buff = fid.read(self.nbytes())
+        buff = fid.read(self.size())
+        assert len(buff)
         self.unpack(buff)
 
     def unpack(self, buff: bytes):
         # print(len(buff), self.number_of_samples_in_data_block, self.dtype, "!ù!ù")
-        print('****', len(buff), self.nbytes(), self.dtype)
+        print('****', len(buff), self.size(), self.dtype, self.number_of_samples_in_data_block)
         self.data = np.frombuffer(
             buff, dtype=self.dtype,
             count=self.number_of_samples_in_data_block)
 
     def pack(self) -> bytes:
-        assert len(self.data) == self.number_of_samples_in_data_block
+        assert self.data.size == self.number_of_samples_in_data_block
+        assert self.data.ndim == 1
+        assert self.data.dtype.itemsize == self.dtype.itemsize
 
-        print('?????', self.nbytes(), self.dtype)
+        print('?????', self.number_of_bytes(), self.dtype)
         buff = self.data.astype(self.dtype).tobytes()
         return buff
 
@@ -437,8 +459,8 @@ class Seg2String:
             value = ";".join(value)
         return key, value
 
-    def nbytes(self):
-        # return self.offset # presumed number of nytes
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
         assert self.offset == len(self.text) + 2 + len(self.string_terminator)
         return len(self.text) + 2 + len(self.string_terminator)
 
@@ -474,13 +496,15 @@ class FreeFormatSection:
     def string_terminator(self):
         return self.parent.string_terminator
 
-    def nbytes(self):
-        # each parent type has its own implementation of this property
-        # return self.parent.size_of_free_format_section
-        # # <= implies recursive error
-        assert self.strings is not None
+    def size(self) -> int:
+        """number of bytes according to headers (loading)"""
+        return self.parent.size_of_free_format_section
 
-        ans = np.sum([string.nbytes() for string in self.strings])
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
+        assert self.strings is not None
+        string: Seg2String
+        ans = np.sum([string.number_of_bytes() for string in self.strings])
         ans = int(np.ceil(ans / 4.) * 4.)
         return ans
 
@@ -490,7 +514,7 @@ class FreeFormatSection:
         # must follow the current value of the attributes
 
         # both parent types have this method implemented
-        buff = fid.read(self.parent.size_of_free_format_section)
+        buff = fid.read(self.size())
         self.unpack(buff=buff)
 
     def unpack(self, buff: bytes):
@@ -549,8 +573,8 @@ class FreeFormatSection:
             buff += string.pack()
 
         # padd with zeros to get the right length
-        if len(buff) < self.nbytes():
-            buff += b"\x00" * (self.nbytes() - len(buff))
+        if len(buff) < self.number_of_bytes():
+            buff += b"\x00" * (self.number_of_bytes() - len(buff))
 
         return buff
 
@@ -570,10 +594,11 @@ class Seg2Trace:
         z = self.trace_data_block.pack()
         return x + y + z
 
-    def nbytes(self):
-        return self.trace_descriptor_subblock.nbytes() + \
-            self.trace_free_format_section.nbytes() + \
-            self.trace_data_block.nbytes()
+    def number_of_bytes(self) -> int:
+        """actual number of bytes (packing)"""
+        return self.trace_descriptor_subblock.number_of_bytes() + \
+            self.trace_free_format_section.number_of_bytes() + \
+            self.trace_data_block.number_of_bytes()
 
 
 class Seg2File:
@@ -609,6 +634,9 @@ class Seg2File:
                 trace_free_format_section.load(fid)
 
                 trace_data_block = TraceDataBlock(parent=trace_descriptor_subblock)
+                print(trace_data_block)
+                print(fid.tell())
+
                 trace_data_block.load(fid)
 
                 seg2trace = Seg2Trace(
@@ -655,15 +683,15 @@ class Seg2File:
 
         # the file descriptor block depends on the trace pointer table
         size_of_file_descriptor_block = \
-            self.file_descriptor_subblock.nbytes() + \
-            self.trace_pointer_subblock.nbytes() + \
-            self.free_format_section.nbytes()
+            self.file_descriptor_subblock.number_of_bytes() + \
+            self.trace_pointer_subblock.number_of_bytes() + \
+            self.free_format_section.number_of_bytes()
 
         self.trace_pointer_subblock.trace_pointers[0] = size_of_file_descriptor_block  # number of bytes in the header
         for n, trace in enumerate(self.seg2traces[:-1]):
             # put the number of bytes of the trace for now
             # x = self.trace_pointer_subblock.trace_pointers.dtype.type(trace.nbytes())
-            self.trace_pointer_subblock.trace_pointers[n+1] = trace.nbytes()
+            self.trace_pointer_subblock.trace_pointers[n+1] = trace.number_of_bytes()
 
         # convert number of bytes into positions
         self.trace_pointer_subblock.trace_pointers = \
@@ -694,6 +722,8 @@ if __name__ == "__main__":
     print('load toto')
     seg2 = Seg2File('./toto.seg2')
 
+    seg2.seg2traces = seg2.seg2traces[:2]
+
     print('write tata')
     with open('tata.seg2', 'wb') as fil:
         fil.write(seg2.pack())
@@ -703,82 +733,82 @@ if __name__ == "__main__":
     print(seg2re.seg2traces[0].trace_free_format_section)
 
     # exit()
-
-    print('load tata')
-    with open('tata.seg2', 'rb') as fid:
-        file_descriptor_subblock = FileDescriptorSubBlock()
-        file_descriptor_subblock.load(fid)
-
-        trace_pointer_subblock = TracePointerSubblock(parent=file_descriptor_subblock)
-        trace_pointer_subblock.load(fid)
-
-        free_format_section = FreeFormatSection(parent=trace_pointer_subblock)
-        free_format_section.load(fid)
-
-        fid.seek(trace_pointer_subblock.trace_pointers[0], 0)
-        trace_descriptor_subblock = TraceDescriptorSubBlock(parent=file_descriptor_subblock)
-        trace_descriptor_subblock.load(fid)
-
-        trace_free_format_section = FreeFormatSection(parent=trace_descriptor_subblock)
-        trace_free_format_section.load(fid)
-
-        trace_data_block = TraceDataBlock(parent=trace_descriptor_subblock)
-        print("gggggggggg", fid.tell(), trace_pointer_subblock.trace_pointers[0])
-        trace_data_block.load(fid)
-
-        # print(fid.tell())
-        # trace_data_block.load(fid)
-        # print(fid.tell())
-
-
-
-    # print(seg2.file_descriptor_subblock)
-    # print(file_descriptor_subblock)
-
-    # print(seg2.trace_pointer_subblock)
-    # print(trace_pointer_subblock)
-    # print(np.abs(seg2.trace_pointer_subblock.trace_pointers - trace_pointer_subblock.trace_pointers).sum())
-
-    print(seg2.free_format_section.nbytes())
-    print(free_format_section.nbytes())
-    # for string in seg2.free_format_section.strings:
-    #     print(string)
-    # print()
-    # for string in free_format_section.strings:
-    #     print(string)
-
-    # print(str(seg2.seg2traces[0].trace_descriptor_subblock).replace(',', ',\n\t'))
-    # print(str(trace_descriptor_subblock).replace(',', ',\n\t'))
     #
-    # for string in seg2.seg2traces[0].trace_free_format_section.strings:
-    #     print(string)
-    # print()
-    # for string in trace_free_format_section.strings:
-    #     print(string)
-
-    print(seg2.seg2traces[0].trace_data_block.data.shape)
-    print(trace_data_block.data.shape)
-    plt.figure()
-    plt.plot(seg2.seg2traces[0].trace_data_block.data)
-    plt.plot(trace_data_block.data)
-    plt.show()
-
-    # seg2re = Seg2File('./tata.seg2')
-    # print(seg2re.seg2traces[0].trace_descriptor_block.free_format_section)
-
-
-
-
-
-
-    # print(seg2.file_descriptor_subblock)
-    # print(seg2.file_descriptor_subblock.pack())
+    # print('load tata')
+    # with open('tata.seg2', 'rb') as fid:
+    #     file_descriptor_subblock = FileDescriptorSubBlock()
+    #     file_descriptor_subblock.load(fid)
     #
-    # print(seg2.trace_pointer_subblock)
-    # print(seg2.trace_pointer_subblock.pack())
-
-    # print(seg2.free_format_section)
-    # print(seg2.free_format_section.pack())
-
-    # print(seg2.seg2traces[0].trace_descriptor_block.pack())
-    # print(seg2.seg2traces[0].trace_data_block.pack())
+    #     trace_pointer_subblock = TracePointerSubblock(parent=file_descriptor_subblock)
+    #     trace_pointer_subblock.load(fid)
+    #
+    #     free_format_section = FreeFormatSection(parent=trace_pointer_subblock)
+    #     free_format_section.load(fid)
+    #
+    #     fid.seek(trace_pointer_subblock.trace_pointers[0], 0)
+    #     trace_descriptor_subblock = TraceDescriptorSubBlock(parent=file_descriptor_subblock)
+    #     trace_descriptor_subblock.load(fid)
+    #
+    #     trace_free_format_section = FreeFormatSection(parent=trace_descriptor_subblock)
+    #     trace_free_format_section.load(fid)
+    #
+    #     trace_data_block = TraceDataBlock(parent=trace_descriptor_subblock)
+    #     print("gggggggggg", fid.tell(), trace_pointer_subblock.trace_pointers[0])
+    #     trace_data_block.load(fid)
+    #
+    #     # print(fid.tell())
+    #     # trace_data_block.load(fid)
+    #     # print(fid.tell())
+    #
+    #
+    #
+    # # print(seg2.file_descriptor_subblock)
+    # # print(file_descriptor_subblock)
+    #
+    # # print(seg2.trace_pointer_subblock)
+    # # print(trace_pointer_subblock)
+    # # print(np.abs(seg2.trace_pointer_subblock.trace_pointers - trace_pointer_subblock.trace_pointers).sum())
+    #
+    # # print(seg2.free_format_section.nbytes())
+    # # print(free_format_section.nbytes())
+    # # for string in seg2.free_format_section.strings:
+    # #     print(string)
+    # # print()
+    # # for string in free_format_section.strings:
+    # #     print(string)
+    #
+    # # print(str(seg2.seg2traces[0].trace_descriptor_subblock).replace(',', ',\n\t'))
+    # # print(str(trace_descriptor_subblock).replace(',', ',\n\t'))
+    # #
+    # # for string in seg2.seg2traces[0].trace_free_format_section.strings:
+    # #     print(string)
+    # # print()
+    # # for string in trace_free_format_section.strings:
+    # #     print(string)
+    #
+    # print(seg2.seg2traces[0].trace_data_block.data.shape)
+    # print(trace_data_block.data.shape)
+    # plt.figure()
+    # plt.plot(seg2.seg2traces[0].trace_data_block.data)
+    # plt.plot(trace_data_block.data)
+    # plt.show()
+    #
+    # # seg2re = Seg2File('./tata.seg2')
+    # # print(seg2re.seg2traces[0].trace_descriptor_block.free_format_section)
+    #
+    #
+    #
+    #
+    #
+    #
+    # # print(seg2.file_descriptor_subblock)
+    # # print(seg2.file_descriptor_subblock.pack())
+    # #
+    # # print(seg2.trace_pointer_subblock)
+    # # print(seg2.trace_pointer_subblock.pack())
+    #
+    # # print(seg2.free_format_section)
+    # # print(seg2.free_format_section.pack())
+    #
+    # # print(seg2.seg2traces[0].trace_descriptor_block.pack())
+    # # print(seg2.seg2traces[0].trace_data_block.pack())
