@@ -1,7 +1,7 @@
 """
 PySeg2
 @copyright : Maximilien Lehujeur
-
+2023/05/12
 
 The dataclasses are organized hierarchically
     so that modifying some attributes of the root classes (like endian)
@@ -47,12 +47,27 @@ class Seg2Trace:
         # pack the free format section of the trace descriptor
         # must be done first because the size must be adjusted in the trace_descriptor_subblock
         free_format_section_buffer = self.trace_free_format_section.pack()
-        assert len(free_format_section_buffer) == self.trace_free_format_section.number_of_bytes()
+        assert len(free_format_section_buffer) == \
+               self.trace_free_format_section.number_of_bytes()
 
-        # update the field in the trace_descriptor_subblock
+        # update the fields in the trace_descriptor_subblock
         self.trace_descriptor_subblock.size_of_descriptor_block = \
             self.trace_descriptor_subblock.number_of_bytes() + \
             self.trace_free_format_section.number_of_bytes()
+
+        self.trace_descriptor_subblock.size_of_data_block = \
+            self.trace_data_block.number_of_bytes()
+
+        self.trace_descriptor_subblock.number_of_samples_in_data_block = \
+            len(self.trace_data_block.data)
+
+        self.trace_descriptor_subblock.data_format_code = \
+            {np.dtype('int16'): b"\x01",
+             np.dtype('int32'): b"\x02",
+             # bx03 not implemented
+             np.dtype('float32'): b"\x04",
+             np.dtype('float64'): b"\x05",
+             }[self.trace_data_block.data.dtype]
 
         # now pack the trace_descriptor_subblock
         trace_description_buffer = self.trace_descriptor_subblock.pack()
@@ -72,46 +87,58 @@ class Seg2Trace:
 
 
 class Seg2File:
-    def __init__(self, filename: str):
-        """
-        :param filename: name of seg2 file to read
-        """
+    def __init__(self):
         self.file_descriptor_subblock = FileDescriptorSubBlock()
 
-        with open(filename, 'rb') as fid:
-            self.file_descriptor_subblock.load(fid)
+        self.trace_pointer_subblock = \
+            TracePointerSubblock(parent=self.file_descriptor_subblock)
 
-            # self.trace_pointer_subblock.set(self.file_descriptor_subblock)
-            self.trace_pointer_subblock = TracePointerSubblock(parent=self.file_descriptor_subblock)
-            self.trace_pointer_subblock.load(fid)
+        self.free_format_section = \
+            FreeFormatSection(parent=self.trace_pointer_subblock)
 
-            self.free_format_section = FreeFormatSection(parent=self.trace_pointer_subblock)
-            self.free_format_section.load(fid)
+        self.seg2traces: List[Seg2Trace] = []
 
-            self.seg2traces: List[Seg2Trace] = []
-            for n, trace_pointer in enumerate(self.trace_pointer_subblock.trace_pointers):
-                # make sure the cursor is positioned at the beginning
-                # of the trace
-                fid.seek(trace_pointer, 0)
+    def load(self, fid):
+        self.file_descriptor_subblock = FileDescriptorSubBlock()
 
-                trace_descriptor_subblock = TraceDescriptorSubBlock(parent=self.file_descriptor_subblock)
-                trace_descriptor_subblock.load(fid)
+        self.file_descriptor_subblock.load(fid)
 
-                trace_free_format_section = FreeFormatSection(parent=trace_descriptor_subblock)
-                trace_free_format_section.load(fid)
+        # self.trace_pointer_subblock.set(self.file_descriptor_subblock)
+        self.trace_pointer_subblock = \
+            TracePointerSubblock(parent=self.file_descriptor_subblock)
+        self.trace_pointer_subblock.load(fid)
 
-                trace_data_block = TraceDataBlock(parent=trace_descriptor_subblock)
-                print(trace_data_block)
-                print(fid.tell())
+        self.free_format_section = \
+            FreeFormatSection(parent=self.trace_pointer_subblock)
+        self.free_format_section.load(fid)
 
-                trace_data_block.load(fid)
+        self.seg2traces: List[Seg2Trace] = []
+        for n, trace_pointer in enumerate(self.trace_pointer_subblock.trace_pointers):
+            # make sure the cursor is positioned at the beginning
+            # of the trace
+            fid.seek(trace_pointer, 0)
 
-                seg2trace = Seg2Trace(
-                    trace_descriptor_subblock=trace_descriptor_subblock,
-                    trace_free_format_section=trace_free_format_section,
-                    trace_data_block=trace_data_block)
+            trace_descriptor_subblock = \
+                TraceDescriptorSubBlock(parent=self.file_descriptor_subblock)
+            trace_descriptor_subblock.load(fid)
 
-                self.seg2traces.append(seg2trace)
+            trace_free_format_section = \
+                FreeFormatSection(parent=trace_descriptor_subblock)
+            trace_free_format_section.load(fid)
+
+            trace_data_block = \
+                TraceDataBlock(parent=trace_descriptor_subblock)
+            # print(trace_data_block)
+            # print(fid.tell())
+
+            trace_data_block.load(fid)
+
+            seg2trace = Seg2Trace(
+                trace_descriptor_subblock=trace_descriptor_subblock,
+                trace_free_format_section=trace_free_format_section,
+                trace_data_block=trace_data_block)
+
+            self.seg2traces.append(seg2trace)
 
     def __str__(self):
         s = f"# ============ File Descriptor\n"
@@ -154,7 +181,9 @@ class Seg2File:
             self.trace_pointer_subblock.number_of_bytes() + \
             self.free_format_section.number_of_bytes()
 
-        self.trace_pointer_subblock.trace_pointers[0] = size_of_file_descriptor_block  # number of bytes in the header
+        self.trace_pointer_subblock.trace_pointers[0] = \
+            size_of_file_descriptor_block  # number of bytes in the header
+
         for n, trace in enumerate(self.seg2traces[:-1]):
             # put the number of bytes of the trace for now
             # x = self.trace_pointer_subblock.trace_pointers.dtype.type(trace.nbytes())
@@ -176,14 +205,16 @@ class Seg2File:
             assert len(buff) == self.trace_pointer_subblock.trace_pointers[n]
 
             buff += trace.pack()
-            print("packing", n, len(buff))
+            # print("packing", n, len(buff))
 
         return buff
 
 
 if __name__ == "__main__":
     print('load toto')
-    seg2 = Seg2File('./toto.seg2')
+    seg2 = Seg2File()
+    with open('./toto.seg2', 'rb') as fid:
+        seg2.load(fid)
 
     seg2.seg2traces = seg2.seg2traces[:2]
 
@@ -192,7 +223,10 @@ if __name__ == "__main__":
         fil.write(seg2.pack())
 
     print('load tata')
-    seg2re = Seg2File('./tata.seg2')
+    seg2re = Seg2File()
+    with open('tata.seg2', 'rb') as fid:
+        seg2re.load(fid)
+
     print(seg2re.seg2traces[0].trace_free_format_section)
 
     # exit()
