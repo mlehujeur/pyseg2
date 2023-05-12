@@ -615,9 +615,6 @@ class Seg2File:
             self.trace_pointer_subblock = TracePointerSubblock(parent=self.file_descriptor_subblock)
             self.trace_pointer_subblock.load(fid)
 
-            # self.free_format_section.set(
-            #     self.file_descriptor_subblock,
-            #     self.trace_pointer_subblock)
             self.free_format_section = FreeFormatSection(parent=self.trace_pointer_subblock)
             self.free_format_section.load(fid)
 
@@ -698,9 +695,6 @@ class Seg2File:
             self.trace_pointer_subblock.trace_pointers\
                 .cumsum()\
                 .astype('uint32')
-        # print(self.trace_pointer_subblock.trace_pointers)
-        # self.trace_pointer_subblock.unpack(self.trace_pointer_subblock.pack())
-        # print(self.trace_pointer_subblock.trace_pointers)
 
         buff = self.file_descriptor_subblock.pack()
         buff += self.trace_pointer_subblock.pack()
