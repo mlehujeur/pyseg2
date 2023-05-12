@@ -1,30 +1,35 @@
-from typing import Union, Optional, List
-from dataclasses import dataclass
-import numpy as np
-
 """
+PySeg2
+@copyright : Maximilien Lehujeur
+
+
 The dataclasses are organized hierarchically
     so that modifying some attributes of the root classes (like endian)
     also modifies all children classes
 
-The hierarchy of the classes is as follow
+The hierarchy of the classes is as follow (nb, this is not inheritance)
     FileDescriptorSubBlock
         TracePointerSubblock
             FreeFormatSection
             Seg2String
-        TraceDescriptorSubBlock 
+        TraceDescriptorSubBlock
+            FreeFormatSection
             TraceDataBlock
         
 Warning:
     loading data: the controlling parameters (e.g. num of traces)
                   are read in the parent binary blocks and used by childrens to load data
-                  => size methods is supposed to give the expected size of the object in bytes
+                  => size methods are supposed to give the expected size of the object in bytes
                      according to headers
     packing data: the controlling parameters are inferred from the current state of the variables
                   and must be updated in the parent classes
                   => number_of_bytes methods should provide the actual number of bytes of an object 
     
 """
+
+from typing import Union, Optional, List
+from dataclasses import dataclass
+import numpy as np
 
 
 @dataclass
