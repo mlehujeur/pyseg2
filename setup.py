@@ -3,8 +3,17 @@ import setuptools
 
 setuptools.setup(
     name='pyseg2',
-    version="1.2",
+    version="1.3",
+    author="Maximilien Lehujeur",
+    author_email="maximilien.lehujeur@univ-eiffel.fr",
+    decription='Standalone package to read/write seg2 files in python',
+    long_description='Standalone package to read/write seg2 files in python',  
     packages=setuptools.find_packages(),
-    install_requires=['numpy' ],
-    python_requires=">=3.2",  # because of datetime.timezone, see
+    install_requires=['numpy'],
+    python_requires=">=3.2",  # because of datetime.timezone
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "Operating System :: Linux",
+        "Operating System :: Microsoft :: Windows",
+        ],
     )
