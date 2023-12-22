@@ -13,7 +13,7 @@ setuptools.setup(
     python_requires=">=3.2",  # because of datetime.timezone
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Operating System :: Linux",
+        "Operating System :: POSIX :: Linux",
         "Operating System :: Microsoft :: Windows",
         ],
     )
