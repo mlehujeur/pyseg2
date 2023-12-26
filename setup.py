@@ -4,6 +4,7 @@ import setuptools
 setuptools.setup(
     name='pyseg2',
     version="1.3",
+    license='GPL3',
     author="Maximilien Lehujeur",
     author_email="maximilien.lehujeur@univ-eiffel.fr",
     decription='Standalone package to read/write seg2 files in python',
