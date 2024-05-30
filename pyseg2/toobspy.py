@@ -133,7 +133,6 @@ def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [dict, List[tuple[dict, np.ndar
         for string in seg2trace.trace_free_format_section.strings:
             trace_stats['seg2'][string.key] = string.value
             if string.key.upper() == "SAMPLE_INTERVAL":
-                print('**', string)
                 trace_stats['delta'] = float(string.value)
 
             elif string.key.upper() == "ACQUISITION_DATE":
