@@ -209,6 +209,17 @@ class Seg2File:
 
         return buff
 
+    def to_obspy(self, **kwargs) -> "obspy.core.stream.Stream":
+        """
+
+        :return :
+        """
+        #imported here to avoid circular imports
+        print(kwargs)
+        from pyseg2.toobspy import pyseg2_to_obspy_stream
+
+        return pyseg2_to_obspy_stream(self, **kwargs)
+
 
 if __name__ == "__main__":
     print('load toto')
