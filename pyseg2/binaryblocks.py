@@ -377,6 +377,9 @@ class TraceDataBlock:
             buff, dtype=self.dtype,
             count=self.number_of_samples_in_data_block)
 
+        if not self.data.flags.writeable:
+            self.data = self.data.copy()
+
     def pack(self) -> bytes:
         assert self.data.size == self.number_of_samples_in_data_block
         assert self.data.ndim == 1
