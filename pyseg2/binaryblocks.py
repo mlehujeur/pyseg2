@@ -4,7 +4,7 @@ PySeg2
 2023/05/12
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union, Optional, List
 
 import numpy as np
@@ -334,7 +334,8 @@ class TraceDataBlock:
     The data block
     """
     parent: TraceDescriptorSubBlock
-    data: np.ndarray = np.array([], np.dtype('float32'))
+    # data: np.ndarray = np.array([], np.dtype('float32')) NO !!!
+    data: np.ndarray = field(default_factory=lambda: np.array([], dtype='float32'))
 
     @property
     def endian(self):
