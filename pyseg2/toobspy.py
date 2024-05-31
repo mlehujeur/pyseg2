@@ -4,7 +4,7 @@ PySeg2
 2023/05/12
 """
 
-from typing import List
+from typing import List, Tuple, Dict
 import os, datetime, warnings
 import numpy as np
 
@@ -91,7 +91,7 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
     return seg2
 
 
-def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [dict, List[tuple[dict, np.ndarray]]]:
+def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [Dict, List[Tuple[Dict, np.ndarray]]]:
 
     """
     :param seg2: a Seg2File object loaded with binary data buffer
