@@ -167,8 +167,10 @@ class TracePointerSubblock:
     """
 
     parent: FileDescriptorSubBlock
-    trace_pointers: np.ndarray = \
-        np.empty([], dtype=np.uint32)  # unsigned int instead of unsigned long??
+    # trace_pointers: np.ndarray =
+    #     np.empty([], dtype=np.uint32)  # unsigned int instead of unsigned long??
+    trace_pointers: np.ndarray = (
+        field(default_factory=lambda: np.empty([], dtype=np.uint32)))
 
     @property
     def endian(self):
