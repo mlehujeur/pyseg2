@@ -3,7 +3,7 @@ import setuptools
 
 setuptools.setup(
     name='pyseg2',
-    version="1.4.2",
+    version="1.4.3",
     license='GPL3',
     author="Maximilien Lehujeur",
     author_email="maximilien.lehujeur@univ-eiffel.fr",
