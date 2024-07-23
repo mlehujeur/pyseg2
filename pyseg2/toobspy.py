@@ -51,7 +51,16 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
     line_terminator = seg2.file_descriptor_subblock.line_terminator.decode('ascii')
     seg2.free_format_section.strings = []
 
-    for text in _extract_text_from_obspy_dict(stats=stream.stats.seg2, line_terminator=line_terminator):
+    try:
+        stream_stats = stream.stats['seg2']
+
+    except (AttributeError, KeyError):
+        stream_stats = {}
+
+    for text in _extract_text_from_obspy_dict(
+            stats=stream_stats,
+            line_terminator=line_terminator):
+
         string = Seg2String(
             parent=seg2.file_descriptor_subblock,
             text=text,
@@ -60,6 +69,16 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
 
     for trace in stream:
         trace: "obspy.core.trace.Trace"
+
+        # update the seg2 header from the conventional fields
+        try:
+            # do NOT use hasattr !!!
+            trace.stats['seg2']
+        except KeyError:
+            trace.stats['seg2'] = {}
+
+        trace.stats['seg2']['SAMPLE_INTERVAL'] = trace.stats.delta
+        #TODO : starttime? ...
 
         trace_descriptor_subblock = \
             TraceDescriptorSubBlock(
@@ -70,7 +89,7 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
                 parent=trace_descriptor_subblock,
                 strings=[])
 
-        for text in _extract_text_from_obspy_dict(stats=trace.stats.seg2, line_terminator=line_terminator):
+        for text in _extract_text_from_obspy_dict(stats=trace.stats['seg2'], line_terminator=line_terminator):
             string = Seg2String(
                 parent=trace_descriptor_subblock,
                 text=text)
@@ -178,6 +197,8 @@ def write_obspy_stream_as_seg2(
 
     assert filename.upper().endswith('SG2') or \
            filename.upper().endswith('SEG2')
+
+    print(stream.stats, stream[0].stats)
 
     seg2 = obspy_to_pyseg2(stream)
 
