@@ -215,7 +215,7 @@ class Seg2File:
         :return :
         """
         #imported here to avoid circular imports
-        print(kwargs)
+        # print(kwargs)
         from pyseg2.toobspy import pyseg2_to_obspy_stream
 
         return pyseg2_to_obspy_stream(self, **kwargs)
