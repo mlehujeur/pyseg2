@@ -116,7 +116,7 @@ def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [Dict, List[Tuple[Dict, np.ndar
     :param seg2: a Seg2File object loaded with binary data buffer
     :return stream_stats: a dictionary to be stored as AttribDict at the stream level
     :return traces_stats_and_data: a list of tuples (trace_stats, trace_data)
-        where trace_stats is a dictionnary to be used to generate the "stats" attributes of the obspy traces
+        where trace_stats is a dictionary to be used to generate the "stats" attributes of the obspy traces
         where trace_data is a numpy array to be used for the data array of each trace
 
     """
@@ -126,8 +126,36 @@ def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [Dict, List[Tuple[Dict, np.ndar
     stream_stats = {"seg2": {}, }
 
     for string in seg2.free_format_section.strings:
-        stream_stats['seg2'][string.key] = string.value
+        if string.key == "NOTE":
+            for item in string.value.split(';'):
+                key = item.split()[0]
+                value = item.split(key)[-1]
+                stream_stats['seg2'][key] = value.strip()
+        else:
+            stream_stats['seg2'][string.key] = string.value
 
+    # default starttime
+    year, month, day, hour, minute, second, microsecond = 1970, 1, 1, 0, 0, 0, 0
+
+    # search for trace time in the file header
+    for string in seg2.free_format_section.strings:
+        if string.key.upper() == "ACQUISITION_DATE":
+            # assume format yyyy/mm/dd
+            year, month, day = [int(_) for _ in string.value.split('/')]
+
+        elif string.key.upper() == "ACQUISITION_TIME":
+            # assume format hh:mm:ss
+            hour, minute, second = [int(_) for _ in string.value.split(':')]
+
+    # interpret the values found in term of starttime
+    try:
+        starttime = datetime.datetime(year, month, day, hour, minute, second)
+    except ValueError as err:
+        if "day is out of range for month" in str(err):
+            # may be the time format is not yyyy/mm/dd, try dd/mm/yyyy
+            year, day = day, year
+            starttime = datetime.datetime(year, month, day, hour, minute, second)
+                                           
     traces_stats_and_data = []
     for seg2trace in seg2.seg2traces:
         trace_data = seg2trace.trace_data_block.data
@@ -138,16 +166,16 @@ def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [Dict, List[Tuple[Dict, np.ndar
             "channel": "",
             "npts": len(trace_data),
             "delta": 1.0,
-            "starttime": datetime.datetime(1970, 1, 1, 0),
+            "starttime": starttime,
             "calib": 1.,
             "seg2": {}}
 
-        year = trace_stats['starttime'].year
-        month = trace_stats['starttime'].month
-        day = trace_stats['starttime'].day
-        hour = trace_stats['starttime'].hour
-        minute = trace_stats['starttime'].minute
-        second = trace_stats['starttime'].second
+        _year = trace_stats['starttime'].year
+        _month = trace_stats['starttime'].month
+        _day = trace_stats['starttime'].day
+        _hour = trace_stats['starttime'].hour
+        _minute = trace_stats['starttime'].minute
+        _second = trace_stats['starttime'].second
 
         for string in seg2trace.trace_free_format_section.strings:
             trace_stats['seg2'][string.key] = string.value
@@ -155,12 +183,13 @@ def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [Dict, List[Tuple[Dict, np.ndar
                 trace_stats['delta'] = float(string.value)
 
             elif string.key.upper() == "ACQUISITION_DATE":
-                year, month, day = [int(_) for _ in string.value.split('/')]
+                _year, _month, _day = [int(_) for _ in string.value.split('/')]
 
             elif string.key.upper() == "ACQUISITION_TIME":
-                hour, minute, second = [int(_) for _ in string.value.split('/')]
+                # assume format hh:mm:ss
+                _hour, _minute, _second = [int(_) for _ in string.value.split(':')]
 
-        trace_stats['starttime'] = datetime.datetime(year, month, day, hour, minute, second)
+        trace_stats['starttime'] = datetime.datetime(_year, _month, _day, _hour, _minute, _second)
         traces_stats_and_data.append((trace_stats, trace_data))
 
     return stream_stats, traces_stats_and_data
