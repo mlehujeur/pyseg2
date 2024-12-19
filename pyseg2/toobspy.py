@@ -126,13 +126,14 @@ def pyseg2_to_obspy(seg2: Seg2File, **kwargs) -> [Dict, List[Tuple[Dict, np.ndar
     stream_stats = {"seg2": {}, }
 
     for string in seg2.free_format_section.strings:
-        if string.key == "NOTE":
-            for item in string.value.split(';'):
-                key = item.split()[0]
-                value = item.split(key)[-1]
-                stream_stats['seg2'][key] = value.strip()
-        else:
-            stream_stats['seg2'][string.key] = string.value
+        stream_stats['seg2'][string.key] = string.value
+        # if string.key == "NOTE":
+        #     for item in string.value.split(';'):
+        #         key = item.split()[0]
+        #         value = item.split(key)[-1]
+        #         stream_stats['seg2'][key] = value.strip()
+        # else:
+        #     stream_stats['seg2'][string.key] = string.value
 
     # default starttime
     year, month, day, hour, minute, second, microsecond = 1970, 1, 1, 0, 0, 0, 0
