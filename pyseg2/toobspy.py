@@ -21,7 +21,7 @@ except ImportError:
     OBSPY_AVAILABLE = False
 
 
-def _extract_text_from_obspy_dict(
+def _extract_text_from_obspy_seg2_dict(
         stats: "obspy.core.AttribDict", line_terminator: str) -> List[str]:
     """
     :param stats:
@@ -33,9 +33,49 @@ def _extract_text_from_obspy_dict(
 
     texts = []
     for key, val in stats.items():
-        if key == "NOTE" or isinstance(val, list):
+        if isinstance(val, list):
             val = line_terminator.join(val)
         text = f"{key.upper()} {val}"
+        texts.append(text)
+    return texts
+
+
+def statsrecurs(stats: AttribDict, path=""):
+    """recursive iterator on a stats object
+    (used by obspy to store stream or trace header metadata) """
+
+    for key, val in stats.items():
+        if isinstance(val, AttribDict):
+            for subkey, subval in statsrecurs(stats=val, path=path + key + "."):
+                yield subkey, subval
+        else:
+            yield path + key, val
+
+
+def _extract_text_from_obspy_noseg2_dict(
+        stats: "obspy.core.AttribDict", line_terminator: str) -> List[str]:
+    """
+    :param stats:
+        obspy.core.stream.Stream.stats or
+        obspy.core.trace.Trace.stats
+    :param line_terminator: the terminating character to use
+    :return texts: the list of str to put in Seg2String objects
+    """
+
+    texts = []
+    for key, val in statsrecurs(stats):
+        if key.lower().startswith('seg2.'):
+            # not handled in this function
+            continue
+
+        if key.lower() in ["delta", "sampling_rate", "starttime", "endtime", "calib",
+                           "network", "station", "location", "channel"]:
+            # ignore the default obspy fields
+            continue
+
+        if isinstance(val, list):
+            val = line_terminator.join(val)
+        text = f"noseg2.{key} {val}"
         texts.append(text)
     return texts
 
@@ -51,15 +91,33 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
     line_terminator = seg2.file_descriptor_subblock.line_terminator.decode('ascii')
     seg2.free_format_section.strings = []
 
+    # ======== Export the stream.stats.seg2 dictionary
     try:
-        stream_stats = stream.stats['seg2']
+        stream.stats['seg2']  # try to access this field
+        stream_stats = stream.stats
 
-    except (AttributeError, KeyError):
-        stream_stats = {}
+    except AttributeError:
+        # no stats at all
+        stream_stats = {'seg2': {}}
 
-    for text in _extract_text_from_obspy_dict(
-            stats=stream_stats,
+    except KeyError:
+        # stats exists but no seg2 dictionary
+        stream_stats["seg2"] = {}
+
+    for text in _extract_text_from_obspy_seg2_dict(
+            stats=stream_stats['seg2'],
             line_terminator=line_terminator):
+
+        string = Seg2String(
+            parent=seg2.file_descriptor_subblock,
+            text=text,
+            )
+        seg2.free_format_section.strings.append(string)
+
+    # ======== Export the other fields from the stream.stats header (noseg2)
+    for text in _extract_text_from_obspy_noseg2_dict(
+        stats=stream.stats,
+        line_terminator=line_terminator):
 
         string = Seg2String(
             parent=seg2.file_descriptor_subblock,
@@ -70,6 +128,7 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
     for trace in stream:
         trace: "obspy.core.trace.Trace"
 
+        # ======== Export the trace.stats.seg2 dictionary
         # update the seg2 header from the conventional fields
         try:
             # do NOT use hasattr !!!
@@ -77,6 +136,7 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
         except KeyError:
             trace.stats['seg2'] = {}
 
+        # force ce file sample_interval (seg2 convention) to the value of the dynamic obspy field delta
         trace.stats['seg2']['SAMPLE_INTERVAL'] = trace.stats.delta
         #TODO : starttime? ...
 
@@ -89,7 +149,15 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
                 parent=trace_descriptor_subblock,
                 strings=[])
 
-        for text in _extract_text_from_obspy_dict(stats=trace.stats['seg2'], line_terminator=line_terminator):
+        for text in _extract_text_from_obspy_seg2_dict(
+                stats=trace.stats['seg2'], line_terminator=line_terminator):
+            string = Seg2String(
+                parent=trace_descriptor_subblock,
+                text=text)
+            trace_free_format_section.strings.append(string)
+
+        for text in _extract_text_from_obspy_noseg2_dict(
+                stats=trace.stats, line_terminator=line_terminator):
             string = Seg2String(
                 parent=trace_descriptor_subblock,
                 text=text)
