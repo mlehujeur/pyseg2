@@ -34,7 +34,7 @@ def _extract_text_from_obspy_seg2_dict(
     texts = []
     for key, val in stats.items():
         if isinstance(val, list):
-            val = line_terminator.join(val)
+            val = line_terminator.join([str(_) for _ in val])
         text = f"{key.upper()} {val}"
         texts.append(text)
     return texts
@@ -74,7 +74,7 @@ def _extract_text_from_obspy_noseg2_dict(
             continue
 
         if isinstance(val, list):
-            val = line_terminator.join(val)
+            val = line_terminator.join([str(_) for _ in val])
         text = f"noseg2.{key} {val}"
         texts.append(text)
     return texts
@@ -328,6 +328,7 @@ if __name__ == '__main__':
         trace = Trace(header=trace_stats, data=trace_data)
         stream.append(trace)
     print(stream)
+
 
 
 
