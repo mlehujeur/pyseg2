@@ -138,7 +138,10 @@ def read_raw_seg2(filename: str, evaluate_types: bool=False):
     """
     :param filename:
     :param evaluate_types:
-    :return:
+        try to evaluate the content of the fields
+        to recover their types
+        to be used with include_type_names=True in build_raw_seg2
+    :return :
     """
 
     seg2 = Seg2File()
