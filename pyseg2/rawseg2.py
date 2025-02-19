@@ -21,6 +21,35 @@ def dict_recurs(dictionnary, _parents=None):
             yield ".".join(_parents + [key]), val
             
 
+
+def string2value(value: str):
+    """
+    try to recover data types
+    assuming that type_names are included in the strings
+    """
+    if value.startswith(('int(', 'str(', 'float(', 'complex(')):
+        value = eval(value)
+
+    elif value.startswith(('list(',)):
+        value = eval(value)
+
+    elif value.startswith(('ndarray(',)):
+        ndarray = np.array
+        value = eval(value.replace(' ', ','))
+
+    else:
+        pass
+
+    return value
+
+
+def value2string(value, include_type_names):
+    if include_type_names:
+        return f"{type(value).__name__}({value})"
+    else:
+        return value
+
+
 def write_raw_seg2(
     filename: str, 
     file_header: dict,
@@ -61,17 +90,13 @@ def build_raw_seg2(file_header, include_type_names, trace_header_and_data):
     seg2 = Seg2File()
     seg2.free_format_section.strings = []
     for key, value in dict_recurs(file_header):
-        if include_type_names:
-            # string = Seg2String(
-            #      parent=seg2.file_descriptor_subblock,
-            #      text=f"{key} {value.__class__.__name__}({repr(value)})")
-            raise NotImplementedError
-        else:
-            string = Seg2String(
-                parent=seg2.file_descriptor_subblock,
-                text=f"{key} {value}")
+
+        string = Seg2String(
+            parent=seg2.file_descriptor_subblock,
+            text=f"{key} {value2string(value, include_type_names)}")
 
         seg2.free_format_section.strings.append(string)
+
     for trace_header, trace_data in trace_header_and_data:
         assert isinstance(trace_header, dict)
         assert isinstance(trace_data, np.ndarray)
@@ -86,9 +111,11 @@ def build_raw_seg2(file_header, include_type_names, trace_header_and_data):
                 strings=[])
 
         for key, value in dict_recurs(trace_header):
+
             string = Seg2String(
                 parent=trace_descriptor_subblock,
-                text=f"{key} {repr(value)}")
+                text=f"{key} {value2string(value, include_type_names)}")
+
             trace_free_format_section.strings.append(string)
 
         trace_data_block = TraceDataBlock(
@@ -107,7 +134,13 @@ def build_raw_seg2(file_header, include_type_names, trace_header_and_data):
     return seg2
 
 
-def read_raw_seg2(filename: str):
+def read_raw_seg2(filename: str, evaluate_types: bool=False):
+    """
+    :param filename:
+    :param evaluate_types:
+    :return:
+    """
+
     seg2 = Seg2File()
     with open(filename, 'rb') as fid:
         seg2.load(fid)
@@ -115,7 +148,12 @@ def read_raw_seg2(filename: str):
     file_header = {}
 
     for string in seg2.free_format_section.strings:
-        file_header[string.key] = string.value
+        value = string.value
+
+        if evaluate_types:
+            value = string2value(value)
+
+        file_header[string.key] = value
 
     trace_header_and_data = []
     for seg2trace in seg2.seg2traces:
@@ -123,7 +161,12 @@ def read_raw_seg2(filename: str):
 
         trace_header = {}
         for string in seg2trace.trace_free_format_section.strings:
-            trace_header[string.key] = string.value
+            value = string.value
+
+            if evaluate_types:
+                value = string2value(value)
+
+            trace_header[string.key] = value
 
         trace_header_and_data.append((trace_header, trace_data))
 
@@ -157,9 +200,9 @@ if __name__ == "__main__":
             (header1, data1),
             (header2, data2)],
         allow_overwrite=True,
-        include_type_names=False)
+        include_type_names=True)
 
-    file_header, trace_header_and_data = read_raw_seg2("toto.seg2")
+    file_header, trace_header_and_data = read_raw_seg2("toto.seg2", evaluate_types=True)
 
     print(file_header)
     for header, data in trace_header_and_data:
