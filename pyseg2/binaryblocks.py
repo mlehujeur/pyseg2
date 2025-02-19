@@ -477,7 +477,9 @@ class FreeFormatSection:
     """
     A group of strings that appear in the file header and in each trace header
     """
-    parent: Union[TracePointerSubblock, TraceDescriptorSubBlock]
+    parent: Union[
+        TracePointerSubblock,   # for the stream header
+        TraceDescriptorSubBlock]   # for the trace headers
     strings: Optional[List[Seg2String]] = None
 
     @property

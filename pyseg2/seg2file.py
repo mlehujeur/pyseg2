@@ -187,7 +187,8 @@ class Seg2File:
         for n, trace in enumerate(self.seg2traces[:-1]):
             # put the number of bytes of the trace for now
             # x = self.trace_pointer_subblock.trace_pointers.dtype.type(trace.nbytes())
-            self.trace_pointer_subblock.trace_pointers[n+1] = trace.number_of_bytes()
+            self.trace_pointer_subblock.trace_pointers[n+1] \
+                = trace.number_of_bytes()
 
         # convert number of bytes into positions
         self.trace_pointer_subblock.trace_pointers = \

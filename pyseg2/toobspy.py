@@ -102,6 +102,7 @@ def obspy_to_pyseg2(stream: "obspy.core.stream.Stream") -> Seg2File:
 
     except KeyError:
         # stats exists but no seg2 dictionary
+        stream_stats = stream.stats
         stream_stats["seg2"] = {}
 
     for text in _extract_text_from_obspy_seg2_dict(
