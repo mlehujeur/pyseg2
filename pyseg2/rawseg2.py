@@ -28,19 +28,37 @@ def write_raw_seg2(
     allow_overwrite: bool=False,
     include_type_names: bool=False):
     """
+    write a raw seg2 file
+    Note: obspy might not be able to read it if some required fields
+    are missing like DELAY, SAMPLING_INTERVAL, ...
 
-    :param filename:
-    :param file_header:
-    :param trace_header_and_data:
-    :param allow_overwrite:
-    :return:
+    :param filename: name of the seg2 file to write
+    :param file_header: a dictionary to store in the file header
+    :param trace_header_and_data: a list of tuples, with the trace header and data array
+    :param allow_overwrite: to allow overwriting of existing file
+    :return seg2: the Seg2File instance writen
     """
     if os.path.isfile(filename):
         if not allow_overwrite:
             raise IOError(f"{filename} exists")
-            
-    seg2 = Seg2File()
 
+    seg2 = build_raw_seg2(file_header, include_type_names, trace_header_and_data)
+
+    with open(filename, 'wb') as fid:
+        fid.write(seg2.pack())
+            
+    return seg2
+
+
+def build_raw_seg2(file_header, include_type_names, trace_header_and_data):
+    """
+
+    :param file_header:
+    :param include_type_names:
+    :param trace_header_and_data:
+    :return seg2: the Seg2File instance to write
+    """
+    seg2 = Seg2File()
     seg2.free_format_section.strings = []
     for key, value in dict_recurs(file_header):
         if include_type_names:
@@ -54,15 +72,14 @@ def write_raw_seg2(
                 text=f"{key} {value}")
 
         seg2.free_format_section.strings.append(string)
-
     for trace_header, trace_data in trace_header_and_data:
         assert isinstance(trace_header, dict)
         assert isinstance(trace_data, np.ndarray)
-        
+
         trace_descriptor_subblock = \
             TraceDescriptorSubBlock(
                 parent=seg2.file_descriptor_subblock)
-            
+
         trace_free_format_section = \
             FreeFormatSection(
                 parent=trace_descriptor_subblock,
@@ -71,27 +88,24 @@ def write_raw_seg2(
         for key, value in dict_recurs(trace_header):
             string = Seg2String(
                 parent=trace_descriptor_subblock,
-                text=f"{key} {repr(value)}")    
+                text=f"{key} {repr(value)}")
             trace_free_format_section.strings.append(string)
 
         trace_data_block = TraceDataBlock(
             parent=trace_descriptor_subblock,
-            )
+        )
 
         seg2trace = Seg2Trace(
             trace_descriptor_subblock=trace_descriptor_subblock,
             trace_free_format_section=trace_free_format_section,
             trace_data_block=trace_data_block,
-            )
-            
+        )
+
         seg2trace.trace_data_block.data = trace_data
 
         seg2.seg2traces.append(seg2trace)
+    return seg2
 
-    with open(filename, 'wb') as fid:
-        fid.write(seg2.pack())
-            
-    return
 
 def read_raw_seg2(filename: str):
     seg2 = Seg2File()
@@ -114,6 +128,7 @@ def read_raw_seg2(filename: str):
         trace_header_and_data.append((trace_header, trace_data))
 
     return file_header, trace_header_and_data
+
 
 if __name__ == "__main__":
 
