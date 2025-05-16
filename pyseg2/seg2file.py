@@ -232,8 +232,41 @@ class Seg2File:
 
         pyseg2_from_obspy_stream(self, obspy_stream, **kwargs)
 
+def create_demo_obspy_stream(num_traces: int = 5) -> obspy.core.stream.Stream:
+
+    num_samples = 1000
+    sampling_rate = 100.0  # Hz
+
+    traces = []
+    starttime = obspy.UTCDateTime.now()  # <-- use current time
+
+    for i in range(num_traces):
+        # Synthetic data: random noise
+        data = np.random.randn(num_samples).astype(np.float32)
+
+        trace = obspy.Trace(data=data)
+        trace.stats.station = f"STAT{i+1:02d}"
+        trace.stats.distance = f"{i}"
+        trace.stats.channel = f"Z"
+        trace.stats.sampling_rate = sampling_rate
+        trace.stats.starttime = starttime
+    
+        traces.append(trace)
+
+    st = obspy.Stream(traces=traces)
+    return st
 
 if __name__ == "__main__":
+    
+    # Demo of creating a SEG2 file from an ObsPy stream
+    st = create_demo_obspy_stream(12)
+    seg2 = Seg2File()
+    seg2.from_obspy(st, delay=-0.01,stacks=1, line_id='demo', source_x = 0, sorting = "AS_ACQUIRED", company='Demo Company')
+    with open('test.dat', 'wb') as fil:
+        fil.write(seg2.pack())
+    
+    """
+    # Demo of loading a SEG2 file and writing back a modified file
     print('load toto')
     seg2 = Seg2File()
     with open('./toto.seg2', 'rb') as fid:
@@ -251,6 +284,9 @@ if __name__ == "__main__":
         seg2re.load(fid)
 
     print(seg2re.seg2traces[0].trace_free_format_section)
+
+    """
+
 
     # exit()
     #
