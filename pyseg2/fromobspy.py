@@ -65,14 +65,13 @@ def pyseg2_from_obspy_stream(seg2file, obspy_stream, delay=0, stacks=1, line_id=
 
     date = obspy_stream[0].stats.starttime.strftime("%d/%m/%Y")
     time = obspy_stream[0].stats.starttime.strftime("%H:%M:%S")
-    Units = 'METERS'
     DateString = Seg2String(parent = seg2file.free_format_section, text = f"ACQUISITION_DATE {date}")
     TimeString = Seg2String(parent = seg2file.free_format_section, text = f"ACQUISITION_TIME {time}")
     if company:
         CompanyString = Seg2String(parent = seg2file.free_format_section, text = f"COMPANY {company}")
         seg2file.free_format_section.strings.append(CompanyString)
-    SortingString = Seg2String(parent = seg2file.free_format_section, text = f"TRACE_SORT {sorting}")
-    UnitsString = Seg2String(parent = seg2file.free_format_section, text = f"UNITS {Units}")
+    SortingString = Seg2String(parent = seg2file.free_format_section, text = f"TRACE_SORT {sorting.value}")
+    UnitsString = Seg2String(parent = seg2file.free_format_section, text = f"UNITS {units.value}")
     seg2file.free_format_section.strings.append(DateString)
     seg2file.free_format_section.strings.append(TimeString)
     seg2file.free_format_section.strings.append(SortingString)
