@@ -478,7 +478,7 @@ class FreeFormatSection:
     A group of strings that appear in the file header and in each trace header
     """
     parent: Union[TracePointerSubblock, TraceDescriptorSubBlock]
-    strings: Optional[List[Seg2String]] = None
+    strings: Optional[List[Seg2String]] = field(default_factory=list)
 
     @property
     def endian(self):
