@@ -30,6 +30,7 @@ Warning:
 from typing import List
 from dataclasses import dataclass
 import numpy as np
+import obspy
 
 from pyseg2.binaryblocks import \
     FileDescriptorSubBlock, TracePointerSubblock, \
@@ -219,6 +220,17 @@ class Seg2File:
         from pyseg2.toobspy import pyseg2_to_obspy_stream
 
         return pyseg2_to_obspy_stream(self, **kwargs)
+
+    def from_obspy(self, obspy_stream: obspy.core.stream.Stream, **kwargs):
+        """
+
+        :return :
+        """
+        #imported here to avoid circular imports
+        # print(kwargs)
+        from pyseg2.fromobspy import pyseg2_from_obspy_stream
+
+        pyseg2_from_obspy_stream(self, obspy_stream, **kwargs)
 
 
 if __name__ == "__main__":
