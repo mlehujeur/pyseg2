@@ -272,8 +272,12 @@ class TraceDescriptorSubBlock:
         self.size_of_descriptor_block = \
             int.from_bytes(buff[2:4], byteorder=self.endian, signed=False)
 
-        assert self.size_of_descriptor_block % 4 == 0
-        assert 32 <= self.size_of_descriptor_block <= 65532, self.size_of_descriptor_block
+        if self.size_of_descriptor_block % 4 != 0:
+            import warnings
+            warnings.warn(f"{self.size_of_descriptor_block=}, is not a multiple of 4")
+            
+        assert 32 <= self.size_of_descriptor_block <= 65532, \
+            f"{self.size_of_descriptor_block=}"
 
         self.size_of_data_block = \
             int.from_bytes(buff[4:8], byteorder=self.endian, signed=False)
