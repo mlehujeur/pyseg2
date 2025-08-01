@@ -502,7 +502,7 @@ class FreeFormatSection:
         """actual number of bytes (packing)"""
         assert self.strings is not None
         string: Seg2String
-        ans = np.sum([string.number_of_bytes() for string in self.strings])
+        ans = np.sum([string.number_of_bytes() for string in self.strings])+2 # add two more bytes to store a zero offset after the last string (required by seg2 definition)
         ans = int(np.ceil(ans / 4.) * 4.)
         return ans
 
