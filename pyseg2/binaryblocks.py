@@ -484,7 +484,7 @@ class FreeFormatSection:
     parent: Union[
         TracePointerSubblock,   # for the stream header
         TraceDescriptorSubBlock]   # for the trace headers
-    strings: Optional[List[Seg2String]] = None
+    strings: Optional[List[Seg2String]] = field(default_factory=list)  # cherry picked from zetica PR#1
 
     @property
     def endian(self):
