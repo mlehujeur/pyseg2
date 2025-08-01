@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyseg2"
+version = "1.4.7"
+description = "Standalone package to read/write seg2 files in python"
+readme = "README.md"
+requires-python = ">=3.2"
+license = {text = "GPL3"}
+authors = [
+  {name = "Maximilien Lehujeur", email = "maximilien.lehujeur@univ-eiffel.fr"}
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows"
+]
+dependencies = [
+  "numpy"
+]
+
